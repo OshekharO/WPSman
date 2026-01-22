@@ -38,5 +38,4 @@ public class CommandResult {
   public boolean hasOutput() {
     return output != null && !output.isEmpty();
   }
-
 }
