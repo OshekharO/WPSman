@@ -68,7 +68,7 @@ This application tests WPS (WiFi Protected Setup) implementations for known vuln
 
 ```bash
 # Clone the repository
-git clone https://github.com/AlessandroSangworgi/wifi-wps-wpa-tester-opensource.git
+git clone https://github.com/fulvius31/wifi-wps-wpa-tester-opensource.git
 
 # Navigate to project directory
 cd wifi-wps-wpa-tester-opensource
