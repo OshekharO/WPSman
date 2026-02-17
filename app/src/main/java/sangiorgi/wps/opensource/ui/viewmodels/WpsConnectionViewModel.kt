@@ -3,15 +3,15 @@ package sangiorgi.wps.opensource.ui.viewmodels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import sangiorgi.wps.opensource.connection.ConnectionUpdateCallback
-import sangiorgi.wps.opensource.connection.ConnectionUpdateCallback.TYPE_LOCKED
-import sangiorgi.wps.opensource.connection.ConnectionUpdateCallback.TYPE_PIXIE_DUST_NOT_COMPATIBLE
-import sangiorgi.wps.opensource.connection.ConnectionUpdateCallback.TYPE_SELINUX
-import sangiorgi.wps.opensource.connection.models.NetworkToTest
-import sangiorgi.wps.opensource.connection.services.ConnectionService
-import sangiorgi.wps.opensource.connection.services.ConnectionServiceFactory
+import sangiorgi.wps.lib.ConnectionUpdateCallback
+import sangiorgi.wps.lib.ConnectionUpdateCallback.TYPE_LOCKED
+import sangiorgi.wps.lib.ConnectionUpdateCallback.TYPE_PIXIE_DUST_NOT_COMPATIBLE
+import sangiorgi.wps.lib.ConnectionUpdateCallback.TYPE_SELINUX
+import sangiorgi.wps.lib.WpsConnectionManager
+import sangiorgi.wps.lib.models.NetworkToTest
 import sangiorgi.wps.opensource.domain.models.WifiNetwork
 import sangiorgi.wps.opensource.ui.screens.*
 import java.text.SimpleDateFormat
@@ -20,13 +20,11 @@ import javax.inject.Inject
 
 @HiltViewModel
 class WpsConnectionViewModel @Inject constructor(
-    private val connectionServiceFactory: ConnectionServiceFactory,
+    private val wpsManager: WpsConnectionManager,
 ) : ViewModel(), ConnectionUpdateCallback {
 
     private val _connectionState = MutableStateFlow(ConnectionState())
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
-
-    private var connectionService: ConnectionService? = null
     private var currentNetwork: WifiNetwork? = null
     private var currentMethod: ConnectionMethod? = null
     private val dateFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -45,22 +43,16 @@ class WpsConnectionViewModel @Inject constructor(
             },
         )
 
-        // Convert WifiNetwork to NetworkToTest
-        val networkToTest = NetworkToTest(
-            network.bssid,
-            network.ssid,
-            when (method) {
-                is ConnectionMethod.STANDARD_WITH_PINS -> method.pins.toTypedArray()
-                is ConnectionMethod.CUSTOM_PIN_WITH_VALUE -> arrayOf(method.pin)
-                is ConnectionMethod.BELKIN -> generateBelkinPins(network.bssid)
-                is ConnectionMethod.PIXIE_DUST -> arrayOf() // No PINs needed for Pixie Dust
-                is ConnectionMethod.BRUTE_FORCE -> arrayOf() // Will be generated during brute force
-                else -> getDefaultPins()
-            },
-        )
-
-        // Initialize connection service via factory (proper DI)
-        connectionService = connectionServiceFactory.create(networkToTest, this)
+        val bssid = network.bssid
+        val ssid = network.ssid
+        val pins = when (method) {
+            is ConnectionMethod.STANDARD_WITH_PINS -> method.pins.toTypedArray()
+            is ConnectionMethod.CUSTOM_PIN_WITH_VALUE -> arrayOf(method.pin)
+            is ConnectionMethod.BELKIN -> generateBelkinPins(network.bssid)
+            is ConnectionMethod.PIXIE_DUST -> arrayOf()
+            is ConnectionMethod.BRUTE_FORCE -> arrayOf()
+            else -> getDefaultPins()
+        }
 
         // Start connection based on method
         viewModelScope.launch {
@@ -72,19 +64,19 @@ class WpsConnectionViewModel @Inject constructor(
             when (method) {
                 is ConnectionMethod.PIXIE_DUST -> {
                     addLog("Starting Pixie Dust attack...", LogType.WARNING)
-                    connectionService?.startPixieDustAttack()
+                    wpsManager.pixieDust(bssid, ssid, this@WpsConnectionViewModel)
                 }
                 is ConnectionMethod.BELKIN -> {
                     addLog("Using Belkin-specific PIN generation...", LogType.INFO)
-                    connectionService?.startBelkinConnection()
+                    wpsManager.testBelkinPin(bssid, ssid, this@WpsConnectionViewModel)
                 }
                 is ConnectionMethod.BRUTE_FORCE -> {
                     addLog("Starting brute force attack (this may take a long time)...", LogType.WARNING)
-                    connectionService?.startBruteforceConnection(1000) // 1 second delay between attempts
+                    wpsManager.bruteForce(bssid, ssid, 1000, this@WpsConnectionViewModel)
                 }
                 else -> {
-                    addLog("Testing ${networkToTest.pins.size} PINs...", LogType.INFO)
-                    connectionService?.startConnection(false)
+                    addLog("Testing ${pins.size} PINs...", LogType.INFO)
+                    wpsManager.testPins(bssid, ssid, pins, this@WpsConnectionViewModel)
                 }
             }
         }
@@ -95,10 +87,10 @@ class WpsConnectionViewModel @Inject constructor(
         _connectionState.update { it.copy(status = ConnectionStatus.FAILED) }
 
         // Run cancel and cleanup on background thread to avoid ANR
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                connectionService?.cancel()
-                connectionService?.cleanup()
+                wpsManager.cancel()
+                wpsManager.cleanup()
             } catch (_: Exception) {
                 // Ignore errors during cleanup
             }
@@ -247,10 +239,11 @@ class WpsConnectionViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        // Run cleanup on background thread to avoid blocking
+        // Only clean up the active operation — do NOT shutdown the shared singleton manager.
+        // The manager's executor and thread pool are reused across ViewModel instances.
         Thread {
             try {
-                connectionService?.cleanup()
+                wpsManager.cleanup()
             } catch (_: Exception) {
                 // Ignore errors during cleanup
             }

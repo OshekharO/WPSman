@@ -97,6 +97,9 @@ dependencies {
 
     implementation libs.commons.lang3
 
+    // WPS Connection Library
+    implementation 'com.github.fulvius31:WpsConnectionLibrary:v1.0.0'
+
     testImplementation libs.junit
     testImplementation libs.mockito.core
     testImplementation libs.mockito.kotlin

@@ -7,10 +7,16 @@ import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import sangiorgi.wps.opensource.data.assets.WpaToolsInitializer
+import sangiorgi.wps.lib.WpsConnectionManager
+import javax.inject.Inject
 
 @HiltAndroidApp
 class WpsApplication : Application() {
+
+    // Eagerly inject the singleton WpsConnectionManager so its executor thread pool
+    // and environment setup start immediately at app launch, not when the user opens
+    // the connection screen.
+    @Inject lateinit var wpsManager: WpsConnectionManager
 
     companion object {
         private const val TAG = "WpsApplication"
@@ -36,12 +42,15 @@ class WpsApplication : Application() {
                 .setTimeout(15),
         )
 
-        // Initialize WPA tools and vendor database asynchronously to avoid ANR
+        // Initialize WPA tools and vendor database asynchronously to avoid ANR.
+        // This also pre-warms the WpsConnectionManager's executor and environment.
         Log.d(TAG, "Starting async initialization of WPA tools...")
-        WpaToolsInitializer.initializeAsync(this)
+        wpsManager.initialize()
             .thenAccept { success ->
                 if (success) {
                     Log.d(TAG, "WPA tools and vendor database initialized successfully")
+                    // Pre-warm the executor environment in the background
+                    wpsManager.awaitReady()
                     _initializationState.value = InitializationState.Ready
                 } else {
                     Log.e(TAG, "Failed to initialize required assets")

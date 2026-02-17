@@ -7,8 +7,8 @@ import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import sangiorgi.wps.opensource.data.assets.WpaToolsInitializer
-import sangiorgi.wps.opensource.data.assets.WpaToolsPaths
+import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -21,15 +21,31 @@ class VendorDatabaseHelper @Inject constructor(
         private const val TABLE_NAME = "oui"
         private const val COLUMN_MAC = "mac"
         private const val COLUMN_VENDOR = "vendor"
+        private const val DATABASE_FILE = "vendor.db"
     }
 
     private var database: SQLiteDatabase? = null
-    private val databasePath: String = WpaToolsPaths(context).getVendorDatabasePath()
+    private val databasePath: String = File(context.filesDir, DATABASE_FILE).absolutePath
 
     init {
-        // Wait for initialization to complete
-        WpaToolsInitializer.waitForInitialization()
+        extractDatabaseIfNeeded()
         openDatabase()
+    }
+
+    private fun extractDatabaseIfNeeded() {
+        val dbFile = File(databasePath)
+        if (dbFile.exists()) return
+
+        try {
+            context.assets.open(DATABASE_FILE).use { input ->
+                FileOutputStream(dbFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            Log.d(TAG, "Extracted $DATABASE_FILE to: $databasePath")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to extract $DATABASE_FILE", e)
+        }
     }
 
     private fun openDatabase() {
