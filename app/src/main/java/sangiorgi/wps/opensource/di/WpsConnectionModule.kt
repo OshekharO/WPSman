@@ -17,9 +17,7 @@ object WpsConnectionModule {
 
     @Provides
     @Singleton
-    fun provideWpsConnectionManager(
-        @ApplicationContext context: Context,
-    ): WpsConnectionManager {
+    fun provideWpsConnectionManager(@ApplicationContext context: Context): WpsConnectionManager {
         return WpsConnectionManager(context, WpsLibConfig(BuildConfig.DATA_DIR))
     }
 }
