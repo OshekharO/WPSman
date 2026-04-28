@@ -115,7 +115,7 @@ dependencies {
 
     implementation libs.commons.lang3
 
-    implementation 'com.github.fulvius31:WpsConnectionLibrary:v2.0.0'
+    implementation 'com.github.OshekharO:WpsConnectionLibrary:v2.0.0'
 
     testImplementation libs.junit
     testImplementation libs.mockito.core
